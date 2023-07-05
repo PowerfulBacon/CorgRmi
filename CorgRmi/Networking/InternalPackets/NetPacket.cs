@@ -1,4 +1,5 @@
-﻿using JetBrains.Annotations;
+﻿using CorgRmi.RemoteConstructs.RemoteInstances;
+using JetBrains.Annotations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,10 +12,14 @@ namespace CorgRmi.Networking.InternalPackets
 	{
 
 		[Pure]
-		public abstract byte[] ConvertToBytes();
+		public abstract void Recieve(RemoteInstance instance, BinaryReader reader);
 
-		[Pure]
-		public abstract void Recieve(BinaryReader reader);
+	}
+
+	internal abstract class NetPacket<T> : NetPacket
+	{
+
+		public abstract byte[] ConvertToBytes(T packetInformation);
 
 	}
 }

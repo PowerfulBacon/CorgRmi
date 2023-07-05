@@ -1,4 +1,6 @@
-﻿using CorgRmi.Networking.Interfaces;
+﻿using CorgRmi.Networking;
+using CorgRmi.Networking.Interfaces;
+using CorgRmi.Networking.InternalPackets;
 using CorgRmi.RemoteConstructs.RemoteInstances;
 using CorgRmi.RemoteConstructs.RemoteObjects.Procedures;
 using CorgRmi.RemoteObjects;
@@ -6,6 +8,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -32,17 +35,18 @@ namespace CorgRmi.RemoteConstructs.RemoteTargets
         /// <summary>
         /// The net client that we use to send data messages to this remote target.
         /// </summary>
-        private INetClient netClient;
+        internal NetworkIntermediary netClient;
 
-        /// <summary>
-        /// Remote targets should only be created by using internal helper functions
-        /// on the remote instance.
-        /// </summary>
-        /// <param name="instance"></param>
-        internal RemoteTarget(RemoteInstance instance, INetClient client)
+		/// <summary>
+		/// Remote targets should only be created by using internal helper functions
+		/// on the remote instance.
+		/// </summary>
+		/// <param name="instance"></param>
+		internal RemoteTarget(RemoteInstance instance, INetClient client)
         {
             Instance = instance;
-            netClient = client;
+            netClient = new NetworkIntermediary(client, instance);
+            instance.Clients.Add(this);
         }
         /// <summary>
         /// Gets the visible client list and acquires the monitor for it.
@@ -64,6 +68,19 @@ namespace CorgRmi.RemoteConstructs.RemoteTargets
         {
 
         }
+
+        /// <summary>
+        /// Send a packet to this remote target
+        /// </summary>
+        /// <typeparam name="TPacket"></typeparam>
+        /// <typeparam name="TPacketInfo"></typeparam>
+        /// <param name="packetInfo"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void SendPacket<TPacket, TPacketInfo>(TPacketInfo packetInfo)
+            where TPacket : NetPacket<TPacketInfo>, new()
+        {
+            netClient.SendPacket<TPacket, TPacketInfo>(packetInfo);
+		}
 
     }
 }

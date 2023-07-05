@@ -16,9 +16,15 @@ namespace CorgRmi.RemoteConstructs.RemoteInstances
         /// <returns></returns>
         public static (RemoteInstance, RemoteInstance) CreateLocalInstancePair()
         {
-            LocalNetClient selfClient = new LocalNetClient();
+			LocalNetClient selfClient = new LocalNetClient();
             LocalNetClient otherClient = new LocalNetClient(selfClient);
-            return (new RemoteInstance(selfClient, selfClient), new RemoteInstance(otherClient, otherClient));
+
+            RemoteInstance hostInstance = new RemoteInstance(selfClient, selfClient);
+            hostInstance.AddConnection(otherClient);
+			RemoteInstance clientInstance = new RemoteInstance(otherClient, otherClient);
+			clientInstance.AddConnection(selfClient);
+
+			return (hostInstance, clientInstance);
         }
 
     }

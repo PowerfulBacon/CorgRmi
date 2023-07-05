@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -14,6 +15,8 @@ namespace CorgRmi.Serialisation
 {
     internal class SerialisableCacheItem
     {
+
+        public Type type;
 
         private int netvarSerialisationLength;
 
@@ -25,24 +28,25 @@ namespace CorgRmi.Serialisation
 
         private IEnumerable<PropertyInfo> serialisedPropertyMembers;
 
-        internal SerialisableCacheItem(object target)
+        internal SerialisableCacheItem(Type targetType)
         {
-            // Fetch all the things that require serialisation
-            // Every netvar requires 4 bytes (uint ID) - 4 billion variables max
-            netVarFieldMembers = target.GetType()
-                .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            type = targetType;
+			// Fetch all the things that require serialisation
+			// Every netvar requires 4 bytes (uint ID) - 4 billion variables max
+			netVarFieldMembers = targetType
+				.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .Where(x => x.FieldType.IsAssignableFrom(typeof(NetVar<object>).BaseType));
-            netVarPropertyMembers = target.GetType()
-                .GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            netVarPropertyMembers = targetType
+				.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .Where(x => x.PropertyType.IsAssignableFrom(typeof(NetVar<object>).BaseType));
             netvarSerialisationLength = (netVarFieldMembers.Count() + netVarPropertyMembers.Count()) * (sizeof(uint) + sizeof(uint));
             // We also need to add all serialised value types
-            serialisedFieldMembers = target.GetType()
-                // Select field types that are serialised
-                .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            serialisedFieldMembers = targetType
+				// Select field types that are serialised
+				.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .Where(x => x.GetCustomAttribute<CorgSerialiseAttribute>() != null);
-            serialisedPropertyMembers = target.GetType()
-                    .GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            serialisedPropertyMembers = targetType
+					.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                     .Where(x => x.GetCustomAttribute<CorgSerialiseAttribute>() != null);
         }
 
@@ -73,7 +77,7 @@ namespace CorgRmi.Serialisation
                     // Send across the null type
                     currentSize += sizeof(ushort);
                 else
-                    currentSize += NetSerialiser.GetSerialiastionLength(value);
+                    currentSize += NetSerialiser.GetSerialiastionLength(value?.GetType() ?? field.FieldType, value);
             }
             // Do the same for properties
             foreach (PropertyInfo property in serialisedPropertyMembers)
@@ -83,7 +87,7 @@ namespace CorgRmi.Serialisation
                     // Send across the null type
                     currentSize += sizeof(ushort);
                 else
-                    currentSize += NetSerialiser.GetSerialiastionLength(value);
+                    currentSize += NetSerialiser.GetSerialiastionLength(value?.GetType() ?? property.PropertyType, value);
             }
             // Return the calculated size
             return currentSize + netvarSerialisationLength;
@@ -94,17 +98,11 @@ namespace CorgRmi.Serialisation
             // Write null into the bytes
             if (target == null)
             {
-                writer.Write((uint)0);
+                writer.Write(ObjectIdentifierGenerator.NULL_TYPE);
                 return;
             }
             // Write the type of the object
             writer.Write(ObjectIdentifierGenerator.GetNetworkedIdentifier(target));
-            // If we are a value type, then write the value
-            if (target.GetType().IsValueType || target.GetType() == typeof(string) || target.GetType().IsArray)
-            {
-                SerialiseInherentType(target, writer);
-                return;
-            }
             // Write the field members
             foreach (FieldInfo field in serialisedFieldMembers)
             {
@@ -112,7 +110,7 @@ namespace CorgRmi.Serialisation
                 if (value == null)
                     writer.Write(ObjectIdentifierGenerator.NULL_TYPE);
                 else
-                    NetSerialiser.Serialise(target, writer);
+                    NetSerialiser.Serialise(field.FieldType, value, writer);
             }
             // Write the property members
             foreach (PropertyInfo property in serialisedPropertyMembers)
@@ -121,7 +119,7 @@ namespace CorgRmi.Serialisation
                 if (value == null)
                     writer.Write(ObjectIdentifierGenerator.NULL_TYPE);
                 else
-                    NetSerialiser.Serialise(target, writer);
+                    NetSerialiser.Serialise(property.PropertyType, value, writer);
             }
             // Write the NetVar IDs
             netVarFieldMembers.ForEach(x => writer.Write((((NetVar?)x.GetValue(target)) ?? null)?.Identifier ?? 0));
@@ -129,12 +127,38 @@ namespace CorgRmi.Serialisation
             // TODO: Return a list of the netvars, so we can determine if they need to be serialised too
         }
 
-        public void PerformDeserialisation(object? target, BinaryReader reader)
+        public object PerformDeserialisation(BinaryReader reader)
         {
+            object createdObject = FormatterServices.GetUninitializedObject(type);
+			// Write the field members
+			foreach (FieldInfo field in serialisedFieldMembers)
+			{
+                field.SetValue(createdObject, NetSerialiser.Deserialise(field.FieldType, reader));
+			}
+			// Write the property members
+			foreach (PropertyInfo property in serialisedPropertyMembers)
+			{
+				property.SetValue(createdObject, NetSerialiser.Deserialise(property.PropertyType, reader));
+			}
+			// Write the NetVar IDs
+			netVarFieldMembers.ForEach(x => {
+                uint netvarIdentifier = reader.ReadUInt32();
+                if (netvarIdentifier == 0)
+                    return;
+                //TODO: Try to find the net var with the ID
+                throw new NotImplementedException();
+            });
+			netVarPropertyMembers.ForEach(x => {
+				uint netvarIdentifier = reader.ReadUInt32();
+				if (netvarIdentifier == 0)
+					return;
+				//TODO: Try to find the net var with the ID
+				throw new NotImplementedException();
+			});
+            return createdObject;
+		}
 
-        }
-
-        private void SerialiseInherentType(object target, BinaryWriter writer)
+		private void SerialiseInherentType(object target, BinaryWriter writer)
         {
             Type objectType = target.GetType();
             // Handle serialisation if strings

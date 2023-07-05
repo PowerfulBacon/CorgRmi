@@ -1,6 +1,7 @@
 ﻿using CorgRmi.RemoteConstructs.RemoteInstances;
 using CorgRmi.RemoteConstructs.RemoteObjects;
 using CorgRmi.RemoteConstructs.RemoteTargets;
+using CorgRmi.Serialisation.Attributes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,6 +36,12 @@ namespace CorgRmi.RemoteObjects
         public bool IsOwner => Owner == Instance.LocalClient;
 
         /// <summary>
+        /// The shared network ID of this object.
+        /// </summary>
+        [CorgSerialise]
+        public int? ID { get; internal set; } = null;
+
+        /// <summary>
         /// What visibility mode should this remote object use?
         /// Note that objects contained within variables inside other objects will always be visible.
         /// </summary>
@@ -44,17 +51,33 @@ namespace CorgRmi.RemoteObjects
         {
             Instance = instance;
             Owner = initialOwner ?? Instance.Host;
-            if (instance.IsHost)
-                RemoteInitialise();
         }
 
-        /// <summary>
-        /// Perform remote initialisation. Transfer the object to other users.
-        /// </summary>
-        internal void RemoteInitialise()
-        {
-            throw new NotImplementedException();
-        }
+		/// <summary>
+		/// Perform remote initialisation. Transfer the object to other users.
+		/// </summary>
+		public void RemoteInitialise()
+		{
+			// We cannot remote initialise if we are not the host
+			if (!Instance.IsHost)
+				throw new Exception("Cannot remote initialise remote object if we are not the host.");
+			ID = Instance.GetUniqueObjectID();
+			Instance.RegisterRemoteObject(this, true);
+		}
+
+		/// <summary>
+		/// Perform remote initialisation. Transfer the object to other users.
+		/// </summary>
+		public T RemoteInitialise<T>()
+            where T : RemoteObject
+		{
+            // We cannot remote initialise if we are not the host
+            if (!Instance.IsHost)
+                throw new Exception("Cannot remote initialise remote object if we are not the host.");
+			ID = Instance.GetUniqueObjectID();
+            Instance.RegisterRemoteObject(this, true);
+            return (T)this;
+		}
 
         /// <summary>
         /// If the target cannot currently see this object, then it will be serialised and shared with them.
@@ -66,7 +89,7 @@ namespace CorgRmi.RemoteObjects
         {
             if (VisibilityMode == DefaultVisibility.ALWAYS_VISIBLE)
                 return false;
-            return false;
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -79,7 +102,7 @@ namespace CorgRmi.RemoteObjects
 		{
 			if (VisibilityMode == DefaultVisibility.ALWAYS_VISIBLE)
 				return false;
-            return false;
+			throw new NotImplementedException();
 		}
 
     }
